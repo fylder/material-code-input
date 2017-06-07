@@ -9,6 +9,7 @@ import android.graphics.Paint;
 import android.graphics.Rect;
 import android.os.Handler;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
@@ -37,10 +38,12 @@ public class CodeInput extends View {
     private Paint underlinePaint;
     private Paint underlineSelectedPaint;
     private Paint textPaint;
+    private Paint indexPaint;
     private Paint hintPaint;
     private ValueAnimator reductionAnimator;
     private ValueAnimator hintYAnimator;
     private ValueAnimator hintSizeAnimator;
+    private ValueAnimator indexAnimator;
     private float underlineReduction;
     private float underlineStrokeWidth;
     private float underlineWidth;
@@ -109,7 +112,7 @@ public class CodeInput extends View {
         underlineStrokeWidth = getContext().getResources().getDimension(R.dimen.underline_stroke_width);
         underlineWidth = getContext().getResources().getDimension(R.dimen.underline_width);
         underlineReduction = getContext().getResources().getDimension(R.dimen.section_reduction);
-        textSize = getContext().getResources().getDimension(R.dimen.text_size);
+//        textSize = getContext().getResources().getDimension(R.dimen.text_size);
         textMarginBottom = getContext().getResources().getDimension(R.dimen.text_margin_bottom);
         underlineColor = getContext().getResources().getColor(R.color.underline_default_color);
         underlineSelectedColor = getContext().getResources().getColor(R.color.underline_selected_color);
@@ -127,17 +130,16 @@ public class CodeInput extends View {
     }
 
     private void initCustomAttributes(AttributeSet attributeset) {
-        TypedArray attributes =
-                getContext().obtainStyledAttributes(attributeset, R.styleable.core_area);
+        TypedArray attributes = getContext().obtainStyledAttributes(attributeset, R.styleable.core_area);
 
         underlineColor = attributes.getColor(R.styleable.core_area_underline_color, underlineColor);
-        underlineSelectedColor =
-                attributes.getColor(R.styleable.core_area_underline_selected_color, underlineSelectedColor);
+        underlineSelectedColor = attributes.getColor(R.styleable.core_area_underline_selected_color, underlineSelectedColor);
         hintColor = attributes.getColor(R.styleable.core_area_underline_color, hintColor);
         hintText = attributes.getString(R.styleable.core_area_hint_text);
         underlineAmount = attributes.getInt(R.styleable.core_area_codes, underlineAmount);
         textColor = attributes.getInt(R.styleable.core_area_text_color, textColor);
-        
+        textSize = attributes.getDimension(R.styleable.core_area_text_size, getContext().getResources().getDimension(R.dimen.text_size));
+
         attributes.recycle();
     }
 
@@ -162,10 +164,16 @@ public class CodeInput extends View {
         textPaint.setAntiAlias(true);
         textPaint.setTextAlign(Paint.Align.CENTER);
         hintPaint = new Paint();
-        hintPaint = new Paint();
         hintPaint.setTextSize(hintNormalSize);
         hintPaint.setAntiAlias(true);
         hintPaint.setColor(underlineColor);
+
+        indexPaint = new Paint();
+        indexPaint.setTextSize(textSize);
+        indexPaint.setColor(textColor);
+        indexPaint.setAntiAlias(true);
+        indexPaint.setTextAlign(Paint.Align.CENTER);
+
     }
 
     private void initAnimator() {
@@ -181,6 +189,14 @@ public class CodeInput extends View {
         hintYAnimator.setDuration(animationDuration);
         hintYAnimator.addUpdateListener(new HintYAnimatorListener());
         hintYAnimator.setInterpolator(new AccelerateDecelerateInterpolator());
+
+        indexAnimator = ValueAnimator.ofInt(0, 4);
+        indexAnimator.setDuration(600);
+        indexAnimator.addUpdateListener(new IndexAnimatorListener());
+        indexAnimator.setRepeatCount(-1);
+        indexAnimator.setRepeatMode(ValueAnimator.REVERSE);//动画重复模式
+        indexAnimator.setInterpolator(new AccelerateDecelerateInterpolator());
+
     }
 
     private void initViewOptions() {
@@ -198,7 +214,7 @@ public class CodeInput extends View {
 
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
-        super.onSizeChanged((int) ((underlineWidth + underlineReduction) * DEFAULT_CODES), (int) viewHeight, oldw, oldh);
+        super.onSizeChanged((int) ((underlineWidth + underlineReduction) * underlineAmount), (int) viewHeight, oldw, oldh);
         height = h;
         initUnderline();
     }
@@ -206,7 +222,7 @@ public class CodeInput extends View {
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
-        setMeasuredDimension((int) ((underlineWidth + underlineReduction) * DEFAULT_CODES), (int) viewHeight);
+        setMeasuredDimension((int) ((underlineWidth + underlineReduction) * underlineAmount), (int) viewHeight);
     }
 
     private void initUnderline() {
@@ -227,7 +243,7 @@ public class CodeInput extends View {
         inputmethodmanager.viewClicked(this);
     }
 
-    private void hideKeyBoard(){
+    private void hideKeyBoard() {
         InputMethodManager imm = (InputMethodManager) getContext().getSystemService(Activity.INPUT_METHOD_SERVICE);
         imm.hideSoftInputFromWindow(getWindowToken(), InputMethodManager.RESULT_UNCHANGED_SHOWN);
     }
@@ -235,6 +251,7 @@ public class CodeInput extends View {
     /**
      * Set Input type like InputType.TYPE_CLASS_PHONE, InputType.TYPE_CLASS_NUMBER
      * Doesn't work for password
+     *
      * @param inputType
      */
     public void setInputType(int inputType) {
@@ -258,6 +275,7 @@ public class CodeInput extends View {
         reductionAnimator.start();
         hintSizeAnimator.start();
         hintYAnimator.start();
+        indexAnimator.start();
         underlined = false;
     }
 
@@ -265,6 +283,7 @@ public class CodeInput extends View {
         reductionAnimator.reverse();
         hintSizeAnimator.reverse();
         hintYAnimator.reverse();
+        indexAnimator.reverse();
         underlined = true;
     }
 
@@ -367,8 +386,10 @@ public class CodeInput extends View {
             float toX = sectionpath.getToX() - reduction;
             float toY = sectionpath.getToY();
             drawSection(i, fromX, fromY, toX, toY, canvas);
-            if (characters.toArray().length > i && characters.size() != 0) {
-                drawCharacter(fromX, toX, characters.get(i), canvas);
+//            if (characters.toArray().length + 1 > i && characters.size() != 0) {
+            if (characters.toArray().length + 1 > i) {
+//                drawCharacter(fromX, toX, characters.get(i), canvas);
+                drawCharacter(fromX, toX, i, canvas);
             }
         }
         if (hintText != null) {
@@ -381,16 +402,20 @@ public class CodeInput extends View {
                              Canvas canvas) {
         Paint paint = underlinePaint;
         if (position == characters.size() && !underlined) {
-            paint = underlineSelectedPaint;
+            paint = underlineSelectedPaint;//选中光标
         }
         canvas.drawLine(fromX, fromY, toX, toY, paint);
     }
 
-    private void drawCharacter(float fromX, float toX, Character character, Canvas canvas) {
+    private void drawCharacter(float fromX, float toX, int position, Canvas canvas) {
         float actualWidth = toX - fromX;
         float centerWidth = actualWidth / 2;
         float centerX = fromX + centerWidth;
-        canvas.drawText(character.toString(), centerX, height - textMarginBottom, textPaint);
+        if (position == characters.size() && !underlined) {
+            canvas.drawText("|", centerX, height - textMarginBottom, indexPaint);
+        } else if (characters.size() > 0) {
+            canvas.drawText(characters.get(position).toString(), centerX, height - textMarginBottom, textPaint);
+        }
     }
 
     private void drawHint(Canvas canvas) {
@@ -432,6 +457,22 @@ public class CodeInput extends View {
         public void onAnimationUpdate(ValueAnimator animation) {
             float size = (float) animation.getAnimatedValue();
             hintPaint.setTextSize(size);
+        }
+    }
+
+    private class IndexAnimatorListener implements ValueAnimator.AnimatorUpdateListener {
+
+        @Override
+        public void onAnimationUpdate(ValueAnimator animation) {
+            int a = (int) animation.getAnimatedValue();
+            if (a == 1 && indexPaint.getAlpha() == 255) {
+                Log.w("test", "a:" + a);
+                indexPaint.setAlpha(0);
+                invalidate();
+            } else if (a == 3 && indexPaint.getAlpha() == 0) {
+                indexPaint.setAlpha(255);
+                invalidate();
+            }
         }
     }
 }
